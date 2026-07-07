@@ -72,6 +72,10 @@ For a non-local deployment, set:
 export PERSONA_LAB_DB=/absolute/path/to/db/nemotron_personas_ko.duckdb
 ```
 
+## Validation workspace guide
+
+See [`docs/validation-workspace-guide.md`](docs/validation-workspace-guide.md) for the end-to-end workflow to create hypothesis workspaces, configure persona filters, record validation notes, and troubleshoot the app.
+
 ## API
 
 ```text
