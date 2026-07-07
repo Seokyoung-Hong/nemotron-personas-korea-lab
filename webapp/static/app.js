@@ -131,6 +131,34 @@ async function submitValidation(event) {
   addMessage('assistant', '검증 결과 저장', `<p>${payload.respondent_profile}: ${payload.result_summary}</p>`);
 }
 
+async function createWorkspace() {
+  const workspaceName = window.prompt('새 가설 워크스페이스 이름을 입력하세요.');
+  if (!workspaceName?.trim()) return;
+  const hypothesis = window.prompt('검증할 핵심 가설을 입력하세요.');
+  if (!hypothesis?.trim()) return;
+  const question = window.prompt('첫 번째 검증 질문을 입력하세요. (선택)', '오늘 메뉴를 언제, 어디서 확인하나요?') || '';
+  const query = window.prompt('페르소나 필터 키워드를 입력하세요. (선택)', $('queryInput').value.trim() || '점심') || '';
+  const province = window.prompt('지역 필터를 입력하세요. 예: 경기, 서울 (선택)', $('provinceInput').value || '') || '';
+
+  addMessage('user', '새 가설 워크스페이스', `<p>${workspaceName}</p><p>${hypothesis}</p>`);
+  const created = await api('/api/workspaces', {
+    method: 'POST',
+    body: JSON.stringify({
+      workspace_name: workspaceName.trim(),
+      hypothesis: hypothesis.trim(),
+      question: question.trim(),
+      query: query.trim(),
+      province: province.trim(),
+      rationale: 'User-created hypothesis workspace.',
+    }),
+  });
+  const segments = await api('/api/segments');
+  state.segments = segments.segments;
+  renderSegments();
+  $('validationStatus').textContent = `워크스페이스 저장 완료: ${created.segment.id}`;
+  await selectSegment(created.segment.id);
+}
+
 async function boot() {
   const [summary, segments] = await Promise.all([api('/api/summary'), api('/api/segments')]);
   renderMetrics(summary);
@@ -142,6 +170,12 @@ async function boot() {
 $('searchForm').addEventListener('submit', searchPersonas);
 $('validationForm').addEventListener('submit', submitValidation);
 $('refreshBtn').addEventListener('click', boot);
+$('newWorkspaceBtn').addEventListener('click', () => {
+  createWorkspace().catch((err) => {
+    console.error(err);
+    addMessage('assistant', '워크스페이스 생성 오류', `<p>${err.message}</p>`);
+  });
+});
 
 boot().catch((err) => {
   console.error(err);

@@ -80,6 +80,7 @@ GET  /api/summary
 GET  /api/segments
 GET  /api/personas?segment_id=...&q=점심&province=경기&limit=20
 GET  /api/hypotheses?segment_id=...
+POST /api/workspaces
 GET  /api/validation-results?hypothesis_id=...
 POST /api/validation-results
 ```
