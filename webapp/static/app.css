@@ -201,6 +201,15 @@ input, textarea, select {
 }
 textarea { min-height: 88px; resize: vertical; }
 
+.is-hidden { display: none !important; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.form-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.workspace-form { display: flex; flex-direction: column; gap: 9px; }
+.workspace-card {
+  border-color: rgba(118,185,0,0.26);
+  background: linear-gradient(180deg, rgba(118,185,0,0.12), rgba(255,255,255,0.04));
+}
+
 .inspector {
   overflow: auto;
   padding: 18px;
