@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Persona Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="app-shell" data-openwebui-benchmark="true">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">P</div><div><div class="brand-title">Persona Lab</div><div class="brand-subtitle">OpenWebUI inspired</div></div></div>
+      <button class="new-chat">+ New workspace</button>
+      <nav class="workspace-list" id="segmentNav"><div class="nav-caption">Segments</div></nav>
+      <div class="sidebar-footer"><div class="tiny-label">Dataset</div><div class="dataset-name">Nemotron Personas Korea</div><div class="dataset-meta" id="sidebarMeta">loading...</div></div>
+    </aside>
+    <main class="chat-panel">
+      <header class="topbar"><div><div class="eyebrow">Synthetic persona intelligence</div><h1>Turn personas into validation hypotheses</h1></div><div class="topbar-actions"><button class="ghost" id="refreshBtn">Refresh</button><a class="ghost" href="/api/summary" target="_blank">API</a></div></header>
+      <section class="metric-grid" id="metricGrid"></section>
+      <section class="chat-stream" id="chatStream"><div class="message assistant"><div class="avatar">AI</div><div class="bubble"><div class="message-title">Persona analysis agent</div><p>Select a segment on the left to load sample personas, hypotheses, and validation questions.</p></div></div></section>
+      <form class="prompt-box" id="searchForm"><input id="queryInput" placeholder="예: 점심, 한식, 공단, 지게차..." autocomplete="off" /><select id="provinceInput" aria-label="Region"><option value="">전국</option><option value="경기">경기</option><option value="서울">서울</option><option value="인천">인천</option><option value="부산">부산</option></select><button type="submit">Search</button></form>
+    </main>
+    <aside class="inspector">
+      <div class="inspector-card selected-segment-card"><div class="tiny-label">Selected Segment</div><h2 id="selectedTitle">Select a segment</h2><p id="selectedRationale">Segment details appear here.</p><div class="count-pill" id="selectedCount">-</div></div>
+      <div class="inspector-card"><div class="section-title">Hypotheses & questions</div><div id="hypothesisList" class="stack"></div></div>
+      <div class="inspector-card"><div class="section-title">Quick validation note</div><form id="validationForm" class="validation-form"><select id="hypothesisSelect" required></select><input id="respondentInput" placeholder="Respondent profile" required /><textarea id="resultInput" placeholder="Interview or field validation summary" required></textarea><select id="evidenceInput"><option value="weak">weak</option><option value="medium" selected>medium</option><option value="strong">strong</option></select><label class="checkbox"><input id="validatedInput" type="checkbox" /> validated</label><button type="submit">Save result</button></form><div id="validationStatus" class="status-text"></div></div>
+    </aside>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+.env.*
+
+# Local/generated data (do not commit NVIDIA/HF dataset shards)
+data/
+dataset/
+datasets/
+db/
+exports/
+*.parquet
+*.csv
+*.jsonl
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
