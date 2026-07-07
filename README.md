@@ -83,6 +83,14 @@ export PERSONA_LAB_DB=/absolute/path/to/db/nemotron_personas_ko.duckdb
 docs/validation-workspace-guide.md
 ```
 
+## AI 도구 연결 문서
+
+사업 아이디어 기반 고객 페르소나 생성, 검색 기반 확인, 생성된 페르소나와의 가상 인터뷰 API 사용법은 아래 문서에 정리되어 있습니다.
+
+```text
+docs/ai-tooling-guide.md
+```
+
 ## API
 
 ```text
@@ -92,6 +100,9 @@ GET  /api/segments
 GET  /api/personas?segment_id=...&q=점심&province=경기&limit=20
 GET  /api/hypotheses?segment_id=...
 POST /api/workspaces
+POST /api/persona-search
+POST /api/customer-personas
+POST /api/virtual-interviews
 GET  /api/validation-results?hypothesis_id=...
 POST /api/validation-results
 ```

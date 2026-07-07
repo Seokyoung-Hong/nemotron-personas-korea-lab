@@ -45,6 +45,20 @@ class WorkspaceIn(BaseModel):
     max_age: int = Field(default=64, ge=0, le=120)
 
 
+class CustomerPersonaRequest(BaseModel):
+    business_idea: str = Field(..., min_length=5, max_length=1200)
+    target_count: int = Field(default=5, ge=1, le=20)
+    province: str | None = Field(default=None, max_length=40)
+    min_age: int = Field(default=20, ge=0, le=120)
+    max_age: int = Field(default=64, ge=0, le=120)
+    extra_keywords: list[str] = Field(default_factory=list, max_length=20)
+
+
+class VirtualInterviewRequest(BaseModel):
+    customer_persona: dict[str, Any]
+    question: str = Field(..., min_length=1, max_length=500)
+
+
 def connect(read_only: bool = True) -> duckdb.DuckDBPyConnection:
     if not DB_PATH.is_file():
         raise HTTPException(status_code=500, detail=f'DB not found: {DB_PATH}')
@@ -87,6 +101,87 @@ def build_workspace_filter(payload: WorkspaceIn) -> str:
             'district LIKE {like} OR province LIKE {like})'.format(like=like)
         )
     return ' AND '.join(where_parts)
+
+
+KEYWORD_STOPWORDS = {
+    '서비스', '사업', '아이디어', '고객', '사용자', '위한', '하는', '하고', '에서', '으로', '에게', '빠르게',
+    '확인하고', '선택하는', '생성', '기반', '검증', '가설', '데이터', '페르소나',
+}
+
+
+def extract_keywords(text: str, extra_keywords: list[str] | None = None, limit: int = 8) -> list[str]:
+    raw_terms = re.findall(r'[0-9A-Za-z가-힣]{2,}', text)
+    raw_terms.extend(extra_keywords or [])
+    keywords: list[str] = []
+    for term in raw_terms:
+        cleaned = term.strip().lower()
+        if len(cleaned) < 2 or cleaned in KEYWORD_STOPWORDS:
+            continue
+        if cleaned not in keywords:
+            keywords.append(cleaned)
+        if len(keywords) >= limit:
+            break
+    return keywords
+
+
+def persona_match_clause(keywords: list[str]) -> tuple[str, list[Any]]:
+    if not keywords:
+        return '1=1', []
+    clauses: list[str] = []
+    params: list[Any] = []
+    fields = ['persona', 'professional_persona', 'culinary_persona', 'occupation', 'district', 'province']
+    for keyword in keywords:
+        like = f'%{keyword}%'
+        clauses.append('(' + ' OR '.join(f'{field} LIKE ?' for field in fields) + ')')
+        params.extend([like] * len(fields))
+    return '(' + ' OR '.join(clauses) + ')', params
+
+
+def build_customer_persona(row: dict[str, Any], business_idea: str, rank: int, keywords: list[str]) -> dict[str, Any]:
+    matched_keywords = [
+        keyword for keyword in keywords
+        if any(keyword in str(row.get(field, '')).lower() for field in ['persona', 'professional_persona', 'culinary_persona', 'occupation', 'district', 'province'])
+    ]
+    label = f"{row['province']} {row['district']} {row['occupation']} 고객"
+    needs = f"{', '.join(matched_keywords) or '생활 패턴'} 맥락에서 {business_idea}의 필요성을 확인할 후보"
+    pain_points = [
+        '현재 행동과 우회 방법을 실제 인터뷰에서 확인해야 합니다.',
+        f"직업/지역 맥락: {row['occupation']} · {row['province']} {row['district']}",
+    ]
+    if row.get('culinary_persona'):
+        pain_points.append(str(row['culinary_persona']))
+    return {
+        'id': f"cp_{hashlib.sha1((business_idea + row['uuid']).encode('utf-8')).hexdigest()[:12]}",
+        'rank': rank,
+        'name': label,
+        'source_uuid': row['uuid'],
+        'demographics': {
+            'age': row['age'],
+            'sex': row['sex'],
+            'province': row['province'],
+            'district': row['district'],
+            'occupation': row['occupation'],
+        },
+        'needs': needs,
+        'pain_points': pain_points,
+        'behavioral_clues': [row.get('persona') or '', row.get('professional_persona') or ''],
+        'matched_keywords': matched_keywords,
+        'interview_seed': f"{label}에게 '{business_idea}'와 관련된 최근 실제 행동, 대안, 비용/불편을 묻습니다.",
+        'source_excerpt': row.get('culinary_persona') or row.get('persona') or '',
+    }
+
+
+def answer_as_persona(persona: dict[str, Any], question: str) -> str:
+    demographics = persona.get('demographics', {})
+    occupation = demographics.get('occupation') or '해당 직군'
+    region = ' '.join(str(demographics.get(key, '')).strip() for key in ['province', 'district']).strip()
+    clue = persona.get('source_excerpt') or '기존 생활 패턴을 기준으로 판단합니다.'
+    needs = persona.get('needs') or '불편을 줄이는 방법을 찾고 있습니다.'
+    return (
+        f"저는 {region}에서 일하는 {occupation} 관점으로 답하면, '{question}'에 대해 먼저 평소 행동부터 떠올릴 것 같습니다. "
+        f"제 상황에서는 {needs}가 중요하고, 관련 단서는 '{clue}'입니다. "
+        "다만 이 답변은 합성 페르소나 기반 가상 응답이므로 실제 인터뷰에서 같은 질문으로 확인해야 합니다."
+    )
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -234,6 +329,81 @@ def personas(
     finally:
         con.close()
     return {'personas': rows}
+
+
+@app.post('/api/persona-search')
+def persona_search(payload: CustomerPersonaRequest) -> dict[str, Any]:
+    if payload.min_age > payload.max_age:
+        raise HTTPException(status_code=400, detail='min_age must be <= max_age')
+    keywords = extract_keywords(payload.business_idea, payload.extra_keywords)
+    match_sql, match_params = persona_match_clause(keywords)
+    where_parts = ['age BETWEEN ? AND ?', match_sql]
+    params: list[Any] = [payload.min_age, payload.max_age, *match_params]
+    if payload.province:
+        where_parts.append('province = ?')
+        params.append(payload.province.strip())
+    params.append(max(payload.target_count * 5, 20))
+    con = connect()
+    try:
+        rows = rows_as_dicts(con, f'''
+            SELECT uuid, age, sex, province, district, occupation,
+                   persona, professional_persona, culinary_persona
+            FROM personas_summary
+            WHERE {' AND '.join(where_parts)}
+            LIMIT ?
+        ''', params)
+    finally:
+        con.close()
+    scored = []
+    for row in rows:
+        haystack = ' '.join(str(row.get(field, '')).lower() for field in ['persona', 'professional_persona', 'culinary_persona', 'occupation', 'district', 'province'])
+        score = sum(1 for keyword in keywords if keyword in haystack)
+        scored.append({'score': score, **row})
+    scored.sort(key=lambda item: (-item['score'], item['uuid']))
+    return {
+        'business_idea': payload.business_idea,
+        'search_basis': {
+            'keywords': keywords,
+            'province': payload.province,
+            'age_range': [payload.min_age, payload.max_age],
+            'matched_count': len(scored),
+        },
+        'matches': scored[:payload.target_count],
+    }
+
+
+@app.post('/api/customer-personas')
+def create_customer_personas(payload: CustomerPersonaRequest) -> dict[str, Any]:
+    search_result = persona_search(payload)
+    keywords = search_result['search_basis']['keywords']
+    personas_generated = [
+        build_customer_persona(row, payload.business_idea, rank=index + 1, keywords=keywords)
+        for index, row in enumerate(search_result['matches'])
+    ]
+    return {
+        'business_idea': payload.business_idea,
+        'search_basis': search_result['search_basis'],
+        'customer_personas': personas_generated,
+        'synthetic_disclaimer': '합성 페르소나 기반 생성 결과이며 실제 고객 수요 증거가 아닙니다.',
+    }
+
+
+@app.post('/api/virtual-interviews')
+def virtual_interview(payload: VirtualInterviewRequest) -> dict[str, Any]:
+    persona = payload.customer_persona
+    answer = answer_as_persona(persona, payload.question.strip())
+    return {
+        'persona_id': persona.get('id'),
+        'persona_name': persona.get('name'),
+        'question': payload.question.strip(),
+        'answer': answer,
+        'follow_up_questions': [
+            '최근 실제로 같은 상황을 겪은 사례를 하나만 말해주실 수 있나요?',
+            '현재는 어떤 대안이나 우회 방법을 쓰고 있나요?',
+            '그 대안을 바꾸려면 어떤 조건이 필요할까요?',
+        ],
+        'synthetic_disclaimer': '합성 페르소나 기반 가상 인터뷰입니다. 실제 검증으로 확정해야 합니다.',
+    }
 
 
 @app.get('/api/hypotheses')

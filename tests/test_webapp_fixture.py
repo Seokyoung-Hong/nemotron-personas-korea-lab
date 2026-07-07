@@ -86,3 +86,49 @@ def test_create_hypothesis_workspace_roundtrip():
     assert any(row['id'] == body['segment']['id'] for row in segments)
     hypotheses = client.get('/api/hypotheses', params={'segment_id': body['segment']['id']}).json()['hypotheses']
     assert hypotheses[0]['hypothesis'] == payload['hypothesis']
+
+
+def test_business_idea_generates_customer_personas_from_search_matches():
+    from webapp.app import app
+    client = TestClient(app)
+    payload = {
+        'business_idea': '공단 근로자가 점심 메뉴를 빠르게 확인하고 한식당을 선택하는 서비스',
+        'target_count': 2,
+        'province': '경기',
+    }
+
+    response = client.post('/api/customer-personas', json=payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['business_idea'] == payload['business_idea']
+    assert body['search_basis']['keywords']
+    assert body['search_basis']['matched_count'] == 1
+    assert len(body['customer_personas']) == 1
+    persona = body['customer_personas'][0]
+    assert persona['source_uuid'] == 'u1'
+    assert '점심' in persona['needs']
+    assert 'interview_seed' in persona
+
+
+def test_virtual_interview_answers_as_generated_persona():
+    from webapp.app import app
+    client = TestClient(app)
+    persona_payload = {
+        'business_idea': '공단 근로자가 점심 메뉴를 빠르게 확인하고 한식당을 선택하는 서비스',
+        'target_count': 1,
+        'province': '경기',
+    }
+    persona = client.post('/api/customer-personas', json=persona_payload).json()['customer_personas'][0]
+
+    response = client.post('/api/virtual-interviews', json={
+        'customer_persona': persona,
+        'question': '오늘 점심 메뉴를 어디서 확인하나요?',
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['question'] == '오늘 점심 메뉴를 어디서 확인하나요?'
+    assert body['answer']
+    assert body['synthetic_disclaimer'].startswith('합성 페르소나 기반')
+    assert 'follow_up_questions' in body
