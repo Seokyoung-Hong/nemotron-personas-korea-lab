@@ -131,6 +131,45 @@ async function submitValidation(event) {
   addMessage('assistant', '검증 결과 저장', `<p>${payload.respondent_profile}: ${payload.result_summary}</p>`);
 }
 
+function showWorkspaceForm() {
+  $('workspacePanel').classList.remove('is-hidden');
+  $('workspaceQueryInput').value = $('queryInput').value.trim();
+  $('workspaceProvinceInput').value = $('provinceInput').value;
+  $('workspaceStatus').textContent = '';
+  $('workspaceNameInput').focus();
+}
+
+function hideWorkspaceForm() {
+  $('workspacePanel').classList.add('is-hidden');
+  $('workspaceStatus').textContent = '';
+}
+
+async function createWorkspace(event) {
+  event.preventDefault();
+  const payload = {
+    workspace_name: $('workspaceNameInput').value.trim(),
+    hypothesis: $('workspaceHypothesisInput').value.trim(),
+    question: $('workspaceQuestionInput').value.trim(),
+    query: $('workspaceQueryInput').value.trim(),
+    province: $('workspaceProvinceInput').value.trim(),
+    min_age: Number($('workspaceMinAgeInput').value || 20),
+    max_age: Number($('workspaceMaxAgeInput').value || 64),
+    rationale: 'User-created hypothesis workspace.',
+  };
+  $('workspaceStatus').textContent = '저장 중...';
+  addMessage('user', '새 가설 워크스페이스', `<p>${payload.workspace_name}</p><p>${payload.hypothesis}</p>`);
+  const created = await api('/api/workspaces', { method: 'POST', body: JSON.stringify(payload) });
+  const segments = await api('/api/segments');
+  state.segments = segments.segments;
+  renderSegments();
+  $('workspaceStatus').textContent = `저장 완료: ${created.segment.id}`;
+  $('workspaceForm').reset();
+  $('workspaceMinAgeInput').value = '20';
+  $('workspaceMaxAgeInput').value = '64';
+  hideWorkspaceForm();
+  await selectSegment(created.segment.id);
+}
+
 async function boot() {
   const [summary, segments] = await Promise.all([api('/api/summary'), api('/api/segments')]);
   renderMetrics(summary);
@@ -141,7 +180,16 @@ async function boot() {
 
 $('searchForm').addEventListener('submit', searchPersonas);
 $('validationForm').addEventListener('submit', submitValidation);
+$('workspaceForm').addEventListener('submit', (event) => {
+  createWorkspace(event).catch((err) => {
+    console.error(err);
+    $('workspaceStatus').textContent = err.message;
+    addMessage('assistant', '워크스페이스 생성 오류', `<p>${err.message}</p>`);
+  });
+});
 $('refreshBtn').addEventListener('click', boot);
+$('newWorkspaceBtn').addEventListener('click', showWorkspaceForm);
+$('cancelWorkspaceBtn').addEventListener('click', hideWorkspaceForm);
 
 boot().catch((err) => {
   console.error(err);

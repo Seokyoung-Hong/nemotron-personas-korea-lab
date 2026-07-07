@@ -31,6 +31,20 @@ class ValidationResultIn(BaseModel):
     validated: bool
 
 
+class WorkspaceIn(BaseModel):
+    workspace_name: str = Field(..., min_length=1, max_length=120)
+    hypothesis: str = Field(..., min_length=1, max_length=1000)
+    rationale: str = Field(default='User-created hypothesis workspace.', max_length=1000)
+    question: str | None = Field(default=None, max_length=500)
+    hypothesis_type: str = Field(default='behavior', min_length=1, max_length=80)
+    why_it_matters: str = Field(default='This guides interview recruiting and validation design.', max_length=1000)
+    confidence_before_validation: str = Field(default='medium', min_length=1, max_length=80)
+    query: str | None = Field(default=None, max_length=120)
+    province: str | None = Field(default=None, max_length=40)
+    min_age: int = Field(default=20, ge=0, le=120)
+    max_age: int = Field(default=64, ge=0, le=120)
+
+
 def connect(read_only: bool = True) -> duckdb.DuckDBPyConnection:
     if not DB_PATH.is_file():
         raise HTTPException(status_code=500, detail=f'DB not found: {DB_PATH}')
@@ -51,6 +65,28 @@ def get_segment_filter(con: duckdb.DuckDBPyConnection, segment_id: str) -> str:
     if not match:
         raise HTTPException(status_code=500, detail=f'Segment has invalid filter_sql: {segment_id}')
     return match.group(1).strip()
+
+
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def build_workspace_filter(payload: WorkspaceIn) -> str:
+    if payload.min_age > payload.max_age:
+        raise HTTPException(status_code=400, detail='min_age must be <= max_age')
+    where_parts = [f'age BETWEEN {payload.min_age} AND {payload.max_age}']
+    province = payload.province.strip() if payload.province else ''
+    query = payload.query.strip() if payload.query else ''
+    if province:
+        where_parts.append(f'province = {sql_literal(province)}')
+    if query:
+        like = sql_literal(f'%{query}%')
+        where_parts.append(
+            '(persona LIKE {like} OR professional_persona LIKE {like} OR '
+            'culinary_persona LIKE {like} OR occupation LIKE {like} OR '
+            'district LIKE {like} OR province LIKE {like})'.format(like=like)
+        )
+    return ' AND '.join(where_parts)
 
 
 @app.get('/', response_class=HTMLResponse)
@@ -94,6 +130,72 @@ def segments() -> dict[str, Any]:
     finally:
         con.close()
     return {'segments': rows}
+
+
+@app.post('/api/workspaces')
+def create_workspace(payload: WorkspaceIn) -> dict[str, Any]:
+    workspace_name = payload.workspace_name.strip()
+    hypothesis_text = payload.hypothesis.strip()
+    if not workspace_name or not hypothesis_text:
+        raise HTTPException(status_code=422, detail='workspace_name and hypothesis are required')
+
+    where_clause = build_workspace_filter(payload)
+    filter_sql = f'SELECT * FROM personas_summary WHERE {where_clause}'
+    seed = '|'.join([workspace_name, hypothesis_text, where_clause])
+    segment_id = 'ws_' + hashlib.sha1(seed.encode('utf-8')).hexdigest()[:12]
+    hypothesis_id = f'{segment_id}_h1'
+    question_text = payload.question.strip() if payload.question else ''
+    question_id = f'{hypothesis_id}_q1'
+
+    con = connect(read_only=False)
+    try:
+        sample_size = con.execute(f'SELECT COUNT(*) FROM personas_summary WHERE {where_clause}').fetchone()[0]
+        con.execute('DELETE FROM validation_questions WHERE hypothesis_id = ?', [hypothesis_id])
+        con.execute('DELETE FROM persona_hypotheses WHERE id = ?', [hypothesis_id])
+        con.execute('DELETE FROM persona_segments WHERE id = ?', [segment_id])
+        con.execute('''
+            INSERT INTO persona_segments
+            (id, business_context_id, segment_name, filter_sql, rationale, sample_size)
+            VALUES (?, 'user_created_workspace', ?, ?, ?, ?)
+        ''', [segment_id, workspace_name, filter_sql, payload.rationale.strip() or 'User-created hypothesis workspace.', sample_size])
+        con.execute('''
+            INSERT INTO persona_hypotheses
+            (id, segment_id, hypothesis_type, hypothesis, why_it_matters, confidence_before_validation)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', [
+            hypothesis_id,
+            segment_id,
+            payload.hypothesis_type.strip(),
+            hypothesis_text,
+            payload.why_it_matters.strip(),
+            payload.confidence_before_validation.strip(),
+        ])
+        if question_text:
+            con.execute('''
+                INSERT INTO validation_questions
+                (id, hypothesis_id, question, question_type, expected_signal)
+                VALUES (?, ?, ?, 'interview', 'Look for repeated current behavior, workaround strength, and willingness to change.')
+            ''', [question_id, hypothesis_id, question_text])
+    finally:
+        con.close()
+
+    return {
+        'segment': {
+            'id': segment_id,
+            'segment_name': workspace_name,
+            'rationale': payload.rationale,
+            'sample_size': sample_size,
+        },
+        'hypothesis': {
+            'segment_id': segment_id,
+            'hypothesis_id': hypothesis_id,
+            'hypothesis_type': payload.hypothesis_type,
+            'hypothesis': hypothesis_text,
+            'why_it_matters': payload.why_it_matters,
+            'confidence_before_validation': payload.confidence_before_validation,
+            'questions': ([{'id': question_id, 'question': question_text, 'expected_signal': 'Look for repeated current behavior, workaround strength, and willingness to change.'}] if question_text else []),
+        },
+    }
 
 
 @app.get('/api/personas')

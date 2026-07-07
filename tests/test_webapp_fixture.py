@@ -60,3 +60,29 @@ def test_validation_result_roundtrip():
     assert created.status_code == 200
     listed = client.get('/api/validation-results', params={'hypothesis_id':'industrial_shift_workers_h1'}).json()['results']
     assert any(row['respondent_profile'] == 'fixture' for row in listed)
+
+
+def test_create_hypothesis_workspace_roundtrip():
+    from webapp.app import app
+    client = TestClient(app)
+    payload = {
+        'workspace_name': '공단 메뉴판 확인 가설',
+        'hypothesis': '공단 근로자는 출근 직후 오늘 메뉴를 확인하면 점심 선택 시간을 줄인다.',
+        'rationale': '새 가설 워크스페이스 추가 버튼이 DB에 세그먼트와 가설을 만들어야 한다.',
+        'question': '오늘 메뉴를 언제 확인하나요?',
+        'province': '경기',
+        'query': '점심',
+    }
+
+    created = client.post('/api/workspaces', json=payload)
+
+    assert created.status_code == 200
+    body = created.json()
+    assert body['segment']['segment_name'] == payload['workspace_name']
+    assert body['hypothesis']['hypothesis'] == payload['hypothesis']
+    assert body['hypothesis']['questions'][0]['question'] == payload['question']
+
+    segments = client.get('/api/segments').json()['segments']
+    assert any(row['id'] == body['segment']['id'] for row in segments)
+    hypotheses = client.get('/api/hypotheses', params={'segment_id': body['segment']['id']}).json()['hypotheses']
+    assert hypotheses[0]['hypothesis'] == payload['hypothesis']
